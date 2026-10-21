@@ -44,3 +44,21 @@ func TestBar(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitize(t *testing.T) {
+	cases := map[string]string{
+		"normal.txt":               "normal.txt",
+		"acentuação ✓ 日本":          "acentuação ✓ 日本",
+		"a\x1b]0;titulo\a\x1b[2Jb": `a\e]0;titulo\x07\e[2Jb`,
+		"quebra\nde\tlinha\r":      `quebra\nde\tlinha\r`,
+		"invalido-\xff\xfe":        `invalido-\xff\xfe`,
+		"del\x7f c1\u009b":         `del\x7f c1\x9b`,
+		"fdp.\u202Etxt.exe":        `fdp.\u202etxt.exe`,
+		"substituto-\uFFFD-válido": "substituto-\uFFFD-válido",
+	}
+	for in, want := range cases {
+		if got := Sanitize(in); got != want {
+			t.Errorf("Sanitize(%q) = %q, esperado %q", in, got, want)
+		}
+	}
+}

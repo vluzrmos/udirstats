@@ -116,7 +116,7 @@ func line(segs []seg, width int, selected bool) string {
 		if left <= 0 {
 			break
 		}
-		t := s.text
+		t := Sanitize(s.text) // todo texto exibido passa por aqui, inclusive nomes e erros
 		if w := runewidth.StringWidth(t); w > left {
 			t = runewidth.Truncate(t, left, "…")
 		}
