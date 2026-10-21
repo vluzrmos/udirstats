@@ -100,6 +100,7 @@ func (s *scanner) dir(n *Node, path string) {
 			continue
 		}
 		c.IsDir = fi.IsDir()
+		c.IsLink = fi.Mode()&os.ModeSymlink != 0
 		st, ok := fi.Sys().(*syscall.Stat_t)
 		if !ok {
 			c.selfApparent = fi.Size()

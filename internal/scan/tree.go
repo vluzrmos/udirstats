@@ -13,6 +13,7 @@ type Node struct {
 	Apparent int64 // tamanho aparente (st_size)
 	Files    int64 // quantidade de arquivos (não diretórios) contidos
 	IsDir    bool
+	IsLink   bool
 	OtherFS  bool // diretório em outro filesystem, não percorrido (-x)
 	Err      error
 	Children []*Node
@@ -38,6 +39,7 @@ func (n *Node) ReplaceWith(fresh *Node) {
 		c.Parent = n
 	}
 	n.IsDir = fresh.IsDir
+	n.IsLink = fresh.IsLink
 	n.OtherFS = fresh.OtherFS
 	n.Err = fresh.Err
 	n.self = fresh.self

@@ -2,13 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 
 	"udirstats/internal/scan"
 )
@@ -26,15 +26,6 @@ func (s sortMode) String() string {
 }
 
 const barWidth = 20
-
-var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	dirStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	selectedStyle = lipgloss.NewStyle().Reverse(true)
-	spinner       = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-)
 
 type tickMsg time.Time
 
@@ -292,87 +283,129 @@ func (m Model) View() string {
 	w := m.width
 	total := m.size(m.cur)
 
-	title := fmt.Sprintf("udirstats  %s  %d arquivos  [%s · ordem: %s]",
-		HumanSize(total), m.cur.Files, m.sizeLabel(), m.sort)
-	b.WriteString(titleStyle.Render(truncate(title, w)) + "\n")
-	b.WriteString(dirStyle.Render(truncate(m.cur.Path(), w)) + "\n")
-	b.WriteString(dimStyle.Render(truncate(fmt.Sprintf("%10s %6s  %-*s  %8s  nome",
-		"tamanho", "%", barWidth+2, "", "arquivos"), w)) + "\n")
+	title := gradientText("udirstats", titleStops)
+	title = append(title,
+		seg{"  " + HumanSize(total), pathStyle},
+		seg{fmt.Sprintf("  %d arquivos  ", m.cur.Files), dimStyle},
+		seg{m.sizeLabel(), badge},
+		seg{" ", plain},
+		seg{"ordem: " + m.sort.String(), badge},
+	)
+	b.WriteString(line(title, w, false) + "\n")
+
+	dir, base := filepath.Split(m.cur.Path())
+	b.WriteString(line([]seg{{dir, dimStyle}, {base, dirStyle}}, w, false) + "\n")
+	b.WriteString(line([]seg{{fmt.Sprintf("%10s %6s  %-*s  %8s  nome",
+		"tamanho", "%", barWidth, "", "arquivos"), dimStyle}}, w, false) + "\n")
+
+	var largest int64
+	for _, c := range m.cur.Children {
+		largest = max(largest, m.size(c))
+	}
 
 	h := m.listHeight()
 	for i := m.offset; i < m.offset+h; i++ {
 		if i < len(m.items) {
-			b.WriteString(m.row(i, total, w))
+			b.WriteString(m.row(i, total, largest, w))
 		}
 		b.WriteString("\n")
 	}
 
-	status := m.status
+	status := []seg{{m.status, dimStyle}}
 	if m.scanning {
-		status = fmt.Sprintf("%s reescaneando… %d arquivos, %s",
-			spinner[m.frame%len(spinner)], m.prog.Files.Load(), HumanSize(m.prog.Bytes.Load()))
+		status = []seg{
+			{spinner[m.frame%len(spinner)] + " ", keyStyle},
+			{fmt.Sprintf("reescaneando… %d arquivos, %s", m.prog.Files.Load(), HumanSize(m.prog.Bytes.Load())), plain},
+		}
 	} else if m.cursor < len(m.items) && m.items[m.cursor] != nil {
 		if sel := m.items[m.cursor]; sel.Err != nil {
-			status = "erro: " + sel.Err.Error()
+			status = []seg{{"erro: " + sel.Err.Error(), errStyle}}
 		}
 	}
-	b.WriteString(truncate(status, w) + "\n")
-	b.WriteString(dimStyle.Render(truncate(
-		"↑↓ mover · enter entrar · ← voltar · s ordenar · a disco/aparente · r reescanear · q sair", w)))
+	b.WriteString(line(status, w, false) + "\n")
+
+	var help []seg
+	for i, kv := range [][2]string{
+		{"↑↓", "mover"}, {"enter", "entrar"}, {"←", "voltar"}, {"s", "ordenar"},
+		{"a", "disco/aparente"}, {"r", "reescanear"}, {"q", "sair"},
+	} {
+		if i > 0 {
+			help = append(help, seg{" · ", dimStyle})
+		}
+		help = append(help, seg{kv[0], keyStyle}, seg{" " + kv[1], dimStyle})
+	}
+	b.WriteString(line(help, w, false))
 	return b.String()
 }
 
-func (m *Model) row(i int, total int64, w int) string {
+// row desenha um item; a % é relativa à pasta atual, e a barra e a cor
+// são relativas ao maior item, para destacar quem ocupa mais.
+func (m *Model) row(i int, total, largest int64, w int) string {
 	n := m.items[i]
-	var line string
+	sel := i == m.cursor
 	if n == nil {
-		line = fmt.Sprintf("%10s %6s  %-*s  %8s  ..", "", "", barWidth+2, "", "")
-	} else {
-		sz := m.size(n)
-		frac := 0.0
-		if total > 0 {
-			frac = float64(sz) / float64(total)
-		}
-		files := ""
-		if n.IsDir {
-			files = fmt.Sprint(n.Files)
-		}
-		name := n.Name
-		switch {
-		case n.OtherFS:
-			name += "/ (outro filesystem)"
-		case n.IsDir:
-			name += "/"
-		}
-		if n.Err != nil {
-			name = "! " + name
-		}
-		line = fmt.Sprintf("%10s %5.1f%%  [%s]  %8s  %s", HumanSize(sz), frac*100, Bar(frac, barWidth), files, name)
+		return line([]seg{{fmt.Sprintf("%10s %6s  %*s  %8s  ", "", "", barWidth, "", ""), plain}, {"..", dirStyle}}, w, sel)
 	}
-	line = truncate(line, w)
+
+	sz := m.size(n)
+	frac := 0.0
+	if total > 0 {
+		frac = float64(sz) / float64(total)
+	}
+	rel := 0.0
+	if largest > 0 {
+		rel = float64(sz) / float64(largest)
+	}
+	sizeStyle := lipgloss.NewStyle().Foreground(heat(rel))
+	if rel < 0.02 {
+		sizeStyle = dimStyle
+	}
+	files := ""
+	if n.IsDir {
+		files = fmt.Sprint(n.Files)
+	}
+
+	segs := []seg{
+		{fmt.Sprintf("%10s", HumanSize(sz)), sizeStyle.Bold(true)},
+		{fmt.Sprintf(" %5.1f%%  ", frac*100), sizeStyle},
+	}
+	segs = append(segs, barSegs(rel, barWidth)...)
+	segs = append(segs, seg{fmt.Sprintf("  %8s  ", files), dimStyle})
+
+	if n.Err != nil {
+		segs = append(segs, seg{"! ", errStyle.Bold(true)})
+	}
 	switch {
-	case i == m.cursor:
-		return selectedStyle.Render(runewidth.FillRight(line, w))
-	case n != nil && n.Err != nil:
-		return errStyle.Render(line)
-	case n == nil || n.IsDir:
-		return dirStyle.Render(line)
+	case n.OtherFS:
+		segs = append(segs, seg{n.Name + "/", dirStyle}, seg{" (outro filesystem)", dimStyle.Italic(true)})
+	case n.IsDir:
+		segs = append(segs, seg{n.Name + "/", dirStyle})
+	case n.Err != nil:
+		segs = append(segs, seg{n.Name, errStyle})
+	case n.IsLink:
+		segs = append(segs, seg{n.Name, linkStyle}, seg{" →", dimStyle})
+	default:
+		segs = append(segs, seg{n.Name, fileStyle(n.Name)})
 	}
-	return line
+	return line(segs, w, sel)
 }
 
 func (m Model) scanView() string {
 	elapsed := time.Since(m.scanStart).Round(time.Second)
-	return fmt.Sprintf("\n  %s Escaneando %s\n\n  %d diretórios · %d arquivos · %s · %s\n\n  %s\n\n  %s\n",
-		spinner[m.frame%len(spinner)], titleStyle.Render(m.rootPath),
-		m.prog.Dirs.Load(), m.prog.Files.Load(), HumanSize(m.prog.Bytes.Load()), elapsed,
-		dimStyle.Render(truncate(m.prog.Current(), m.width-4)),
-		dimStyle.Render("q para sair"))
+	w := m.width - 2
+	title := append([]seg{{spinner[m.frame%len(spinner)] + " ", keyStyle}}, gradientText("udirstats", titleStops)...)
+	title = append(title, seg{"  escaneando ", dimStyle}, seg{m.rootPath, pathStyle})
+	stats := []seg{
+		{fmt.Sprint(m.prog.Dirs.Load()), keyStyle}, {" diretórios · ", dimStyle},
+		{fmt.Sprint(m.prog.Files.Load()), keyStyle}, {" arquivos · ", dimStyle},
+		{HumanSize(m.prog.Bytes.Load()), lipgloss.NewStyle().Foreground(heat(0.4)).Bold(true)},
+		{" · " + elapsed.String(), dimStyle},
+	}
+	return "\n  " + line(title, w, false) +
+		"\n\n  " + line(stats, w, false) +
+		"\n\n  " + line([]seg{{m.prog.Current(), dimStyle}}, w, false) +
+		"\n\n  " + line([]seg{{"q", keyStyle}, {" para sair", dimStyle}}, w, false) + "\n"
 }
 
 // Err devolve o erro fatal do scan inicial, se houve.
 func (m Model) Err() error { return m.err }
-
-func truncate(s string, w int) string {
-	return runewidth.Truncate(s, max(0, w), "…")
-}

@@ -31,6 +31,15 @@ udirstats [-x] [-apparent] [caminho]
 | `r` | reescanear a pasta atual |
 | `q` | sair |
 
+## Cores
+
+- A barra e o tamanho usam um degradê verde → amarelo → laranja → vermelho relativo ao maior
+  item da pasta; a coluna `%` é relativa à pasta atual.
+- Arquivos são coloridos por tipo (imagem, vídeo, áudio, compactado, código, documento,
+  binário, config); symlinks aparecem em itálico com `→`.
+- Funciona em true color, 256 e 16 cores (detectado pelo terminal, cada cor fixa tem valor
+  explícito para cada nível), em fundo claro ou escuro, e respeita `NO_COLOR`.
+
 Itens marcados com `!` tiveram erro de leitura (normalmente permissão); o erro aparece na
 linha de status quando o item é selecionado. Symlinks não são seguidos e hardlinks são
 contados uma única vez.

@@ -89,7 +89,7 @@ func TestScanSymlinkNotFollowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := child(t, n, "link")
-	if l.IsDir || len(l.Children) != 0 {
+	if !l.IsLink || l.IsDir || len(l.Children) != 0 {
 		t.Errorf("symlink foi seguido")
 	}
 	if got := contentApparent(n) - l.Apparent; got != 100_000 {
