@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"syscall"
 )
 
 // Options controla o comportamento do scan.
@@ -32,6 +31,12 @@ func (p *Progress) Current() string {
 }
 
 type inode struct{ dev, ino uint64 }
+
+// fileStat são os metadados dependentes de plataforma (ver stat_*.go).
+type fileStat struct {
+	disk            int64 // bytes alocados em disco
+	dev, ino, nlink uint64
+}
 
 type scanner struct {
 	opts    Options
@@ -60,19 +65,19 @@ func Scan(root string, opts Options, prog *Progress) (*Node, error) {
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("%s não é um diretório", abs)
 	}
-	st := fi.Sys().(*syscall.Stat_t)
+	st, _ := statOf(abs, fi)
 
 	s := &scanner{
 		opts:    opts,
 		prog:    prog,
 		sem:     make(chan struct{}, runtime.NumCPU()*4),
 		seen:    make(map[inode]struct{}),
-		rootDev: uint64(st.Dev),
+		rootDev: st.dev,
 	}
 	n := &Node{
 		Name:         abs,
 		IsDir:        true,
-		self:         int64(st.Blocks) * 512,
+		self:         st.disk,
 		selfApparent: fi.Size(),
 	}
 	s.dir(n, abs)
@@ -101,13 +106,14 @@ func (s *scanner) dir(n *Node, path string) {
 		}
 		c.IsDir = fi.IsDir()
 		c.IsLink = fi.Mode()&os.ModeSymlink != 0
-		st, ok := fi.Sys().(*syscall.Stat_t)
+		p := filepath.Join(path, e.Name())
+		st, ok := statOf(p, fi)
 		if !ok {
 			c.selfApparent = fi.Size()
 			continue
 		}
-		disk, apparent := int64(st.Blocks)*512, fi.Size()
-		if !c.IsDir && st.Nlink > 1 && s.dup(inode{uint64(st.Dev), uint64(st.Ino)}) {
+		disk, apparent := st.disk, fi.Size()
+		if !c.IsDir && st.nlink > 1 && s.dup(inode{st.dev, st.ino}) {
 			disk, apparent = 0, 0
 		}
 		c.self, c.selfApparent = disk, apparent
@@ -117,11 +123,10 @@ func (s *scanner) dir(n *Node, path string) {
 			s.prog.Files.Add(1)
 			continue
 		}
-		if s.opts.OneFS && uint64(st.Dev) != s.rootDev {
+		if s.opts.OneFS && st.dev != s.rootDev {
 			c.OtherFS = true
 			continue
 		}
-		p := filepath.Join(path, e.Name())
 		select {
 		case s.sem <- struct{}{}:
 			s.wg.Add(1)

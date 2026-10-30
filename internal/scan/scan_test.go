@@ -3,6 +3,7 @@ package scan
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -81,6 +82,9 @@ func TestScanSymlinkNotFollowed(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "data", "big.bin"), 100_000)
 	if err := os.Symlink(filepath.Join(root, "data"), filepath.Join(root, "link")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skip("criar symlink exige privilégio ou modo desenvolvedor:", err)
+		}
 		t.Fatal(err)
 	}
 
@@ -98,6 +102,9 @@ func TestScanSymlinkNotFollowed(t *testing.T) {
 }
 
 func TestScanHardlinkCountedOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hardlinks não são deduplicados no Windows")
+	}
 	root := t.TempDir()
 	a := filepath.Join(root, "a.bin")
 	write(t, a, 100_000)
