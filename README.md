@@ -3,6 +3,8 @@
 Analisador de uso de disco para o terminal, inspirado no WinDirStat/ncdu: varre um diretório
 e mostra pastas e arquivos ordenados por tamanho, com navegação entre as pastas.
 
+![udirstats navegando por uma home com dados simulados](docs/demo.gif)
+
 ## Instalação
 
 Os binários de cada versão ficam em [Releases](https://github.com/vluzrmos/udirstats/releases)
